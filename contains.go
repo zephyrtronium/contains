@@ -88,8 +88,10 @@ func (s *Set) Reset() {
 
 func filter(key uintptr) uintptr {
 	if ^uintptr(0) != 0xffffffff {
-		// 64-bit; use Knuth's MMIX LCG.
-		return 6364136223846793005*key + 1442695040888963407
+		// 64-bit; use Knuth's MMIX LCG. We have to "convert" to uint64 because
+		// these constants overflow uintptr on 32-bit, and the compiler doesn't
+		// already know this branch is dead.
+		return uintptr(6364136223846793005*uint64(key) + 1442695040888963407)
 	}
 	// 32-bit; use Numerical Recipes' LCG.
 	return 1664525*key + 1013904223
