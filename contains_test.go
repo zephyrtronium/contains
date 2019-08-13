@@ -3,11 +3,12 @@ package contains
 import (
 	"fmt"
 	"math/rand"
+	"sort"
 	"testing"
 )
 
-const testN = 1 << 16
-const testLoops = 4
+const testN = 1 << 14
+const testLoops = 2
 
 // TestContains tests that a Set does not contain values before adding and
 // does contain them after adding.
@@ -77,6 +78,57 @@ func TestAdd(t *testing.T) {
 	}
 }
 
+// TestKeys tests that a set returns the correct keys.
+func TestKeys(t *testing.T) {
+	v := make([]uintptr, testN)
+	for i := range v {
+		v[i] = uintptr(i)
+	}
+	// Test that Keys returns nil before adding any elements.
+	s := Set{}
+	t.Run("nothing_added", func(t *testing.T) {
+		if u := s.Keys(); u != nil {
+			t.Errorf("wrong keys: want nil, have %v", u)
+		}
+	})
+	// Test that Keys does what we expect in the first place.
+	for _, x := range v {
+		s.Add(x)
+	}
+	u := s.Keys()
+	// Sorting the keys places them in the same order as v.
+	sort.Slice(u, func(i, j int) bool { return u[i] < u[j] })
+	t.Run("long", func(t *testing.T) {
+		if len(u) != len(v) {
+			t.Fatalf("keys have incorrect length: want %d, have %d", len(v), len(u))
+		}
+		for i, x := range v {
+			if x != u[i] {
+				t.Errorf("incorrect key: want %d, have %d", x, u[i])
+			}
+		}
+	})
+	// Test that Keys works properly following Reset.
+	s.Reset()
+	s.Add(1)
+	u = s.Keys()
+	t.Run("reset", func(t *testing.T) {
+		if len(u) != 1 {
+			t.Fatalf("keys have incorrect length: want 1, have %d", len(u))
+		}
+		if u[0] != 1 {
+			t.Errorf("wrong key: want 1, have %d", u[0])
+		}
+	})
+	// Test taht Keys returns nil after resetting.
+	s.Reset()
+	t.Run("empty_reset", func(t *testing.T) {
+		if u := s.Keys(); u != nil {
+			t.Errorf("wrong keys: want nil, have %v", u)
+		}
+	})
+}
+
 // TestReset tests that a set contains no keys after resetting.
 func TestReset(t *testing.T) {
 	v := make([]uintptr, testN)
@@ -106,18 +158,15 @@ func BenchmarkContains(b *testing.B) {
 func mkBContains(n int) func(b *testing.B) {
 	return func(b *testing.B) {
 		s := Set{}
+		v := make([]uintptr, n)
 		for i := 0; i < n; i++ {
 			s.Add(uintptr(i))
 		}
-		var v []int
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			k := i % n
-			if k == 0 {
-				v = rand.Perm(n)
-			}
-			if !s.Contains(uintptr(v[k])) {
-				b.Errorf("set lost key %d", uintptr(v[k]))
+			if !s.Contains(v[k]) {
+				b.Errorf("set lost key %d", v[k])
 			}
 		}
 	}
@@ -127,18 +176,30 @@ func mkBContains(n int) func(b *testing.B) {
 func BenchmarkAdd(b *testing.B) {
 	cases := []int{1 << 2, 1 << 3, 1 << 6, 1 << 12, 1 << 16}
 	mod := []int{1 << 1, 1 << 3, 1 << 6, 1 << 12, 1 << 16}
+	type benchcase struct {
+		name string
+		f    func(*testing.B)
+	}
+	var reallocs []benchcase
+	var resets []benchcase
 	for _, n := range cases {
 		for _, m := range mod {
 			if m > n {
 				break
 			}
-			b.Run(fmt.Sprintf("Realloc%d%%%d", n, m), mkBAddRealloc(n, m))
-			b.Run(fmt.Sprintf("Reset%d%%%d", n, m), mkBAddReset(n, m))
+			reallocs = append(reallocs, benchcase{fmt.Sprintf("Realloc_%dmod%d", n, m), mkBAddRealloc(n, m)})
+			resets = append(resets, benchcase{fmt.Sprintf("Reset_%dmod%d", n, m), mkBAddReset(n, m)})
 		}
+	}
+	for _, c := range reallocs {
+		b.Run(c.name, c.f)
+	}
+	for _, c := range resets {
+		b.Run(c.name, c.f)
 	}
 }
 
-func mkBAddRealloc(n, mod int) func(b *testing.B) {
+func mkBAddRealloc(n, mod int) func(*testing.B) {
 	return func(b *testing.B) {
 		v := make([]uintptr, n)
 		for i := 0; i < n; i++ {
@@ -147,21 +208,16 @@ func mkBAddRealloc(n, mod int) func(b *testing.B) {
 		s := Set{}
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			h := i % n
-			if h == 0 {
-				// Test hangs if I pause the timer for this????
-				for j := n - 1; j > 0; j-- {
-					k := rand.Intn(j + 1)
-					v[j], v[k] = v[k], v[j]
-				}
+			k := i % n
+			if k == 0 {
 				s = Set{}
 			}
-			s.Add(uintptr(h))
+			s.Add(v[k])
 		}
 	}
 }
 
-func mkBAddReset(n, mod int) func(b *testing.B) {
+func mkBAddReset(n, mod int) func(*testing.B) {
 	return func(b *testing.B) {
 		v := make([]uintptr, n)
 		for i := 0; i < n; i++ {
@@ -170,15 +226,27 @@ func mkBAddReset(n, mod int) func(b *testing.B) {
 		s := Set{}
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			h := i % n
-			if h == 0 {
-				for j := n - 1; j > 0; j-- {
-					k := rand.Intn(j + 1)
-					v[j], v[k] = v[k], v[j]
-				}
+			k := i % n
+			if k == 0 {
 				s.Reset()
 			}
-			s.Add(uintptr(h))
+			s.Add(v[k])
 		}
 	}
+}
+
+// ExampleSet shows an example of how to use a Set.
+func ExampleSet() {
+	s := Set{}
+	fmt.Println("Contains 1:", s.Contains(1))
+	fmt.Println("Added 1:", s.Add(1))
+	fmt.Println("Contains 1:", s.Contains(1))
+	fmt.Println("Added 1:", s.Add(1))
+	s.Reset()
+	fmt.Println("Added 1:", s.Add(1))
+	// Output: Contains 1: false
+	// Added 1: true
+	// Contains 1: true
+	// Added 1: false
+	// Added 1: true
 }

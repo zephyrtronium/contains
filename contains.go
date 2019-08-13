@@ -1,13 +1,14 @@
 // Package contains implements a reusable set.
 //
 // This is primarily intended to enable a fast cycle-avoiding graph traversal,
-// because map[interface{}]struct{} is slow. Typically the keys come from e.g.
-// reflect.ValueOf(x).Pointer().
+// because map[interface{}]struct{} is slow. Operations like union,
+// intersection, and symmetric difference are not supplied, but can be
+// implemented. Typically the keys come from e.g.
+// reflect.ValueOf(x).Pointer() or uintptr(unsafe.Pointer(x)).
+//
 package contains
 
-import (
-	"math/bits"
-)
+import "math/bits"
 
 const (
 	// minDiff is the minimum number of bits a new key must add to be added
@@ -23,8 +24,8 @@ type Set struct {
 	keys    [][]uintptr
 }
 
-// Add returns false if the key already exists in the set, and otherwise adds
-// it to the set and returns true.
+// Add adds the key to the set. Returns true if the key is new or false if the
+// key was already present.
 func (s *Set) Add(key uintptr) bool {
 	r := filter(key)
 	for k, f := range s.filters {
@@ -60,7 +61,7 @@ func (s *Set) Add(key uintptr) bool {
 	return true
 }
 
-// Contains returns true if key has previously been added to the set.
+// Contains returns true if key exists in the set.
 func (s *Set) Contains(key uintptr) bool {
 	r := filter(key)
 	for k, f := range s.filters {
@@ -75,6 +76,18 @@ func (s *Set) Contains(key uintptr) bool {
 	return false
 }
 
+// Keys returns a slice containing all keys in the set. Returns nil if the set
+// is empty.
+func (s *Set) Keys() []uintptr {
+	var r []uintptr
+	for _, l := range s.keys {
+		for _, v := range l {
+			r = append(r, v)
+		}
+	}
+	return r
+}
+
 // Reset removes all objects from the set. Reusing the set after calling Reset
 // allows the previously allocated memory to be reused.
 func (s *Set) Reset() {
@@ -83,6 +96,9 @@ func (s *Set) Reset() {
 		for k, v := range s.keys {
 			s.keys[k] = v[:0]
 		}
+		// We don't have to resize s.keys itself because it's only ever read by
+		// index and we check cap when adding to it. This lets us save a store
+		// to memory, which has a significant impact in a tight loop.
 	}
 }
 
