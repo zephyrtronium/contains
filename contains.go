@@ -1,10 +1,9 @@
-// Package contains implements a reusable set.
+// Package contains implements reusable, lightweight, efficient sets.
 //
-// This is primarily intended to enable a fast cycle-avoiding graph traversal,
-// because map[interface{}]struct{} is slow. Operations like union,
-// intersection, and symmetric difference are not supplied, but can be
-// implemented. Typically the keys come from e.g.
-// reflect.ValueOf(x).Pointer() or uintptr(unsafe.Pointer(x)).
+// The focus is on usefulness rather than set theory.
+//
+// Note that while this package provides two distinct set types, their APIs
+// disagree in favor of efficiency.
 //
 package contains
 
@@ -18,7 +17,7 @@ const (
 	defCap = 8
 )
 
-// A Set is a collection of keys. The zero value is ready to use.
+// A Set is a collection of sparse keys. The zero value is ready to use.
 type Set struct {
 	filters []uintptr
 	keys    [][]uintptr
